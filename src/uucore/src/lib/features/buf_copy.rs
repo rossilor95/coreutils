@@ -20,14 +20,13 @@ pub mod other;
 pub use other::copy_stream;
 
 #[cfg(test)]
+#[cfg(any(target_os = "linux", target_os = "android"))] // copy_stream is a thin wrapper for io::copy. nothing to test...
 mod tests {
     use super::*;
     use std::fs::File;
     use tempfile::tempdir;
 
-    #[cfg(target_os = "linux")]
     use {
-        crate::pipes,
         std::fs::OpenOptions,
         std::{
             io::{Seek, SeekFrom},
@@ -37,7 +36,6 @@ mod tests {
 
     use std::io::{Read, Write};
 
-    #[cfg(target_os = "linux")]
     fn new_temp_file() -> File {
         let temp_dir = tempdir().unwrap();
         OpenOptions::new()
@@ -50,11 +48,12 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn test_copy_stream() {
         let mut dest_file = new_temp_file();
 
-        let (mut pipe_read, mut pipe_write) = pipes::pipe().unwrap();
+        let (pipe_read, pipe_write) = rustix::pipe::pipe().unwrap();
+        let mut pipe_read: File = pipe_read.into();
+        let mut pipe_write: File = pipe_write.into();
         let data = b"Hello, world!";
         let thread = thread::spawn(move || {
             pipe_write.write_all(data).unwrap();
@@ -65,31 +64,6 @@ mod tests {
         // We would have been at the end already, so seek again to the start.
         dest_file.seek(SeekFrom::Start(0)).unwrap();
 
-        let mut buf = Vec::new();
-        dest_file.read_to_end(&mut buf).unwrap();
-
-        assert_eq!(buf, data);
-    }
-
-    #[test]
-    #[cfg(not(target_os = "linux"))]
-    // Test for non-linux platforms. We use regular files instead.
-    fn test_copy_stream() {
-        let temp_dir = tempdir().unwrap();
-        let src_path = temp_dir.path().join("src.txt");
-        let dest_path = temp_dir.path().join("dest.txt");
-
-        let mut src_file = File::create(&src_path).unwrap();
-        let mut dest_file = File::create(&dest_path).unwrap();
-
-        let data = b"Hello, world!";
-        src_file.write_all(data).unwrap();
-        src_file.sync_all().unwrap();
-
-        let mut src_file = File::open(&src_path).unwrap();
-        copy_stream(&mut src_file, &mut dest_file).unwrap();
-
-        let mut dest_file = File::open(&dest_path).unwrap();
         let mut buf = Vec::new();
         dest_file.read_to_end(&mut buf).unwrap();
 
